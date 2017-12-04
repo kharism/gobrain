@@ -19,6 +19,9 @@ func matrix(I, J int) [][]float64 {
 
 func vector(I int, fill float64) []float64 {
 	v := make([]float64, I)
+	if fill == 0.0 {
+		return v
+	}
 	for i := 0; i < I; i++ {
 		v[i] = fill
 	}

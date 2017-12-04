@@ -138,6 +138,30 @@ func (nn *FeedForward) Update(inputs []float64) []float64 {
 
 	return nn.OutputActivations
 }
+func (nn *FeedForward) Work1(wg *sync.WaitGroup, lRate, mFactor float64, jobs1 chan Job, outputDeltas *[]float64) {
+	for job := range jobs1 {
+		for j := 0; j < nn.NOutputs; j++ {
+			change := (*outputDeltas)[j] * nn.HiddenActivations[job.i]
+			nn.OutputWeights[job.i][j] = nn.OutputWeights[job.i][j] + lRate*change + mFactor*nn.OutputChanges[job.i][j]
+			nn.OutputChanges[job.i][j] = change
+		}
+	}
+	wg.Done()
+}
+func (nn *FeedForward) Work2(wg *sync.WaitGroup, lRate, mFactor float64, jobs1 chan Job, hiddenDeltas *[]float64) {
+	for job := range jobs1 {
+		for j := 0; j < nn.NOutputs; j++ {
+			change := (*hiddenDeltas)[j] * nn.InputActivations[job.i]
+			nn.InputWeights[job.i][j] = nn.InputWeights[job.i][j] + lRate*change + mFactor*nn.InputChanges[job.i][j]
+			nn.InputChanges[job.i][j] = change
+		}
+	}
+	wg.Done()
+}
+
+type Job struct {
+	i, j int
+}
 
 /*
 The BackPropagate method is used, when training the Neural Network,
@@ -163,54 +187,47 @@ func (nn *FeedForward) BackPropagate(targets []float64, lRate, mFactor float64) 
 
 		hiddenDeltas[i] = dsigmoid(nn.HiddenActivations[i]) * e
 	}
-	type Job struct {
-		i, j int
-	}
+
 	wg1 := sync.WaitGroup{}
 	jobs1 := make(chan Job)
-	work1 := func() {
-		for job := range jobs1 {
-			change := outputDeltas[job.j] * nn.HiddenActivations[job.i]
-			nn.OutputWeights[job.i][job.j] = nn.OutputWeights[job.i][job.j] + lRate*change + mFactor*nn.OutputChanges[job.i][job.j]
-			nn.OutputChanges[job.i][job.j] = change
-		}
-		wg1.Done()
-	}
-	for i := 0; i < nn.Worker; i++ {
+
+	for i := 0; i < nn.NHiddens; i++ {
 		wg1.Add(1)
-		go work1()
+		go nn.Work1(&wg1, lRate, mFactor, jobs1, &outputDeltas)
 	}
 	for i := 0; i < nn.NHiddens; i++ {
-		for j := 0; j < nn.NOutputs; j++ {
-			//change := outputDeltas[j] * nn.HiddenActivations[i]
-			//nn.OutputWeights[i][j] = nn.OutputWeights[i][j] + lRate*change + mFactor*nn.OutputChanges[i][j]
-			//nn.OutputChanges[i][j] = change
-			jobs1 <- Job{i, j}
-		}
+		jobs1 <- Job{i, 0}
+		// for j := 0; j < nn.NOutputs; j++ {
+		//change := outputDeltas[j] * nn.HiddenActivations[i]
+		//nn.OutputWeights[i][j] = nn.OutputWeights[i][j] + lRate*change + mFactor*nn.OutputChanges[i][j]
+		//nn.OutputChanges[i][j] = change
+
+		// }
 	}
 	close(jobs1)
 	wg1.Wait()
 	wg2 := sync.WaitGroup{}
 	jobs2 := make(chan Job)
-	work2 := func() {
+	/*work2 := func() {
 		for job := range jobs2 {
 			change := hiddenDeltas[job.j] * nn.InputActivations[job.i]
 			nn.InputWeights[job.i][job.j] = nn.InputWeights[job.i][job.j] + lRate*change + mFactor*nn.InputChanges[job.i][job.j]
 			nn.InputChanges[job.i][job.j] = change
 		}
 		wg2.Done()
-	}
-	for i := 0; i < nn.Worker; i++ {
+	}*/
+	for i := 0; i < nn.NInputs; i++ {
 		wg2.Add(1)
-		go work2()
+		go nn.Work2(&wg2, lRate, mFactor, jobs2, &hiddenDeltas)
 	}
 	for i := 0; i < nn.NInputs; i++ {
-		for j := 0; j < nn.NHiddens; j++ {
-			// change := hiddenDeltas[j] * nn.InputActivations[i]
-			// nn.InputWeights[i][j] = nn.InputWeights[i][j] + lRate*change + mFactor*nn.InputChanges[i][j]
-			// nn.InputChanges[i][j] = change
-			jobs2 <- Job{i, j}
-		}
+		jobs2 <- Job{i, 0}
+		// for j := 0; j < nn.NHiddens; j++ {
+		// change := hiddenDeltas[j] * nn.InputActivations[i]
+		// nn.InputWeights[i][j] = nn.InputWeights[i][j] + lRate*change + mFactor*nn.InputChanges[i][j]
+		// nn.InputChanges[i][j] = change
+		// jobs2 <- Job{i, j}
+		// }
 	}
 	close(jobs2)
 	wg2.Wait()
@@ -225,10 +242,9 @@ func (nn *FeedForward) BackPropagate(targets []float64, lRate, mFactor float64) 
 
 /*
 This method is used to train the Network, it will run the training operation for 'iterations' times
-and return the computed errors when training.
 */
-func (nn *FeedForward) Train(patterns [][][]float64, iterations int, lRate, mFactor float64, debug bool) []float64 {
-	errors := make([]float64, iterations)
+func (nn *FeedForward) Train(patterns [][][]float64, iterations int, lRate, mFactor float64, debug bool) {
+	//errors := make([]float64, iterations)
 
 	for i := 0; i < iterations; i++ {
 		var e float64
@@ -239,14 +255,13 @@ func (nn *FeedForward) Train(patterns [][][]float64, iterations int, lRate, mFac
 			e += tmp
 		}
 
-		errors[i] = e
-
+		//errors[i] = e
 		if debug && i%1000 == 0 {
 			fmt.Println(i, e)
 		}
 	}
 
-	return errors
+	return
 }
 
 func (nn *FeedForward) Test(patterns [][][]float64) {
