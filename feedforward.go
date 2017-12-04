@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"sync"
 )
 
 // FeedForwad struct is used to represent a simple neural network
@@ -21,6 +22,8 @@ type FeedForward struct {
 	InputWeights, OutputWeights [][]float64
 	// Last change in weights for momentum
 	InputChanges, OutputChanges [][]float64
+	// Number of worker routines
+	Worker int
 }
 
 /*
@@ -29,12 +32,13 @@ Initialize the neural network;
 the 'inputs' value is the number of inputs the network will have,
 the 'hiddens' value is the number of hidden nodes and
 the 'outputs' value is the number of the outputs of the network.
+sets the number of worker to 1
 */
 func (nn *FeedForward) Init(inputs, hiddens, outputs int) {
 	nn.NInputs = inputs + 1   // +1 for bias
 	nn.NHiddens = hiddens + 1 // +1 for bias
 	nn.NOutputs = outputs
-
+	nn.Worker = 1
 	nn.InputActivations = vector(nn.NInputs, 1.0)
 	nn.HiddenActivations = vector(nn.NHiddens, 1.0)
 	nn.OutputActivations = vector(nn.NOutputs, 1.0)
@@ -134,6 +138,7 @@ func (nn *FeedForward) Update(inputs []float64) []float64 {
 
 	return nn.OutputActivations
 }
+
 /*
 The BackPropagate method is used, when training the Neural Network,
 to back propagate the errors from network activation.
@@ -158,23 +163,57 @@ func (nn *FeedForward) BackPropagate(targets []float64, lRate, mFactor float64) 
 
 		hiddenDeltas[i] = dsigmoid(nn.HiddenActivations[i]) * e
 	}
-
+	type Job struct {
+		i, j int
+	}
+	wg1 := sync.WaitGroup{}
+	jobs1 := make(chan Job)
+	work1 := func() {
+		for job := range jobs1 {
+			change := outputDeltas[job.j] * nn.HiddenActivations[job.i]
+			nn.OutputWeights[job.i][job.j] = nn.OutputWeights[job.i][job.j] + lRate*change + mFactor*nn.OutputChanges[job.i][job.j]
+			nn.OutputChanges[job.i][job.j] = change
+		}
+		wg1.Done()
+	}
+	for i := 0; i < nn.Worker; i++ {
+		wg1.Add(1)
+		go work1()
+	}
 	for i := 0; i < nn.NHiddens; i++ {
 		for j := 0; j < nn.NOutputs; j++ {
-			change := outputDeltas[j] * nn.HiddenActivations[i]
-			nn.OutputWeights[i][j] = nn.OutputWeights[i][j] + lRate*change + mFactor*nn.OutputChanges[i][j]
-			nn.OutputChanges[i][j] = change
+			//change := outputDeltas[j] * nn.HiddenActivations[i]
+			//nn.OutputWeights[i][j] = nn.OutputWeights[i][j] + lRate*change + mFactor*nn.OutputChanges[i][j]
+			//nn.OutputChanges[i][j] = change
+			jobs1 <- Job{i, j}
 		}
 	}
-
+	close(jobs1)
+	wg1.Wait()
+	wg2 := sync.WaitGroup{}
+	jobs2 := make(chan Job)
+	work2 := func() {
+		for job := range jobs2 {
+			change := hiddenDeltas[job.j] * nn.InputActivations[job.i]
+			nn.InputWeights[job.i][job.j] = nn.InputWeights[job.i][job.j] + lRate*change + mFactor*nn.InputChanges[job.i][job.j]
+			nn.InputChanges[job.i][job.j] = change
+		}
+		wg2.Done()
+	}
+	for i := 0; i < nn.Worker; i++ {
+		wg2.Add(1)
+		go work2()
+	}
 	for i := 0; i < nn.NInputs; i++ {
 		for j := 0; j < nn.NHiddens; j++ {
-			change := hiddenDeltas[j] * nn.InputActivations[i]
-			nn.InputWeights[i][j] = nn.InputWeights[i][j] + lRate*change + mFactor*nn.InputChanges[i][j]
-			nn.InputChanges[i][j] = change
+			// change := hiddenDeltas[j] * nn.InputActivations[i]
+			// nn.InputWeights[i][j] = nn.InputWeights[i][j] + lRate*change + mFactor*nn.InputChanges[i][j]
+			// nn.InputChanges[i][j] = change
+			jobs2 <- Job{i, j}
 		}
 	}
-
+	close(jobs2)
+	wg2.Wait()
 	var e float64
 
 	for i := 0; i < len(targets); i++ {
@@ -183,6 +222,7 @@ func (nn *FeedForward) BackPropagate(targets []float64, lRate, mFactor float64) 
 
 	return e
 }
+
 /*
 This method is used to train the Network, it will run the training operation for 'iterations' times
 and return the computed errors when training.
