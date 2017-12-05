@@ -101,24 +101,42 @@ func (nn *FeedForward) Update(inputs []float64) []float64 {
 	for i := 0; i < nn.NInputs-1; i++ {
 		nn.InputActivations[i] = inputs[i]
 	}
-
+	wg := sync.WaitGroup{}
 	for i := 0; i < nn.NHiddens-1; i++ {
-		var sum float64
+		wg.Add(1)
+		// var sum float64
 
-		for j := 0; j < nn.NInputs; j++ {
-			sum += nn.InputActivations[j] * nn.InputWeights[j][i]
-		}
+		// for j := 0; j < nn.NInputs; j++ {
+		// 	sum += nn.InputActivations[j] * nn.InputWeights[j][i]
+		// }
 
-		// compute contexts sum
-		for k := 0; k < len(nn.Contexts); k++ {
-			for j := 0; j < nn.NHiddens-1; j++ {
-				sum += nn.Contexts[k][j]
+		// // compute contexts sum
+		// for k := 0; k < len(nn.Contexts); k++ {
+		// 	for j := 0; j < nn.NHiddens-1; j++ {
+		// 		sum += nn.Contexts[k][j]
+		// 	}
+		// }
+
+		// nn.HiddenActivations[i] = sigmoid(sum)
+		go func(i int) {
+			var sum float64
+
+			for j := 0; j < nn.NInputs; j++ {
+				sum += nn.InputActivations[j] * nn.InputWeights[j][i]
 			}
-		}
 
-		nn.HiddenActivations[i] = sigmoid(sum)
+			// compute contexts sum
+			for k := 0; k < len(nn.Contexts); k++ {
+				for j := 0; j < nn.NHiddens-1; j++ {
+					sum += nn.Contexts[k][j]
+				}
+			}
+
+			nn.HiddenActivations[i] = sigmoid(sum)
+			wg.Done()
+		}(i)
 	}
-
+	wg.Wait()
 	// update the contexts
 	if len(nn.Contexts) > 0 {
 		for i := len(nn.Contexts) - 1; i > 0; i-- {
@@ -205,7 +223,7 @@ func (nn *FeedForward) BackPropagate(targets []float64, lRate, mFactor float64) 
 		// }
 	}
 	close(jobs1)
-	wg1.Wait()
+
 	wg2 := sync.WaitGroup{}
 	jobs2 := make(chan Job)
 	/*work2 := func() {
@@ -230,6 +248,7 @@ func (nn *FeedForward) BackPropagate(targets []float64, lRate, mFactor float64) 
 		// }
 	}
 	close(jobs2)
+	wg1.Wait()
 	wg2.Wait()
 	var e float64
 
