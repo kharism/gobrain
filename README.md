@@ -1,5 +1,7 @@
 # gobrain
 
+
+this fork parallelize some function on backpropagation and update to improve processing speed
 Neural Networks written in go
 
 [![GoDoc](https://godoc.org/github.com/goml/gobrain?status.svg)](https://godoc.org/github.com/goml/gobrain)
